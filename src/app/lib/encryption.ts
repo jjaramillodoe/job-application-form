@@ -1,10 +1,22 @@
 import crypto from 'crypto';
 
-if (!process.env.ENCRYPTION_KEY) {
-  throw new Error('Please add your encryption key to .env.local');
+// Only throw during runtime, not during build
+function getEncryptionKey(): string {
+  if (!process.env.ENCRYPTION_KEY) {
+    // Check if we're in a build context
+    const isBuild = process.env.NEXT_PHASE === 'phase-production-build' || 
+                    process.env.NEXT_PHASE === 'phase-export';
+    
+    if (isBuild) {
+      // During build, return a dummy key (will fail at runtime if not set)
+      return '';
+    }
+    throw new Error('Please add your encryption key to .env.local');
+  }
+  return process.env.ENCRYPTION_KEY;
 }
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+const ENCRYPTION_KEY = getEncryptionKey();
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const SALT_LENGTH = 64;

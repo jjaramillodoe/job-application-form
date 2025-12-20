@@ -3,6 +3,8 @@ import { connectToDatabase } from '@/app/lib/mongodb';
 import { encryptData, decryptData } from '@/app/lib/encryption';
 import { ObjectId } from 'mongodb';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }

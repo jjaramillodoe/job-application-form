@@ -1,10 +1,5 @@
 import { MongoClient } from 'mongodb';
 
-if (!process.env.MONGODB_URI) {
-  throw new Error('Please add your Mongo URI to .env.local');
-}
-
-const uri = process.env.MONGODB_URI;
 const options = {
   maxPoolSize: 10, // Maximum number of connections in the pool
   serverSelectionTimeoutMS: 5000, // Timeout for server selection
@@ -14,26 +9,49 @@ const options = {
 let client: MongoClient;
 let clientPromise: Promise<MongoClient>;
 
-if (process.env.NODE_ENV === 'development') {
-  // In development mode, use a global variable so that the value
-  // is preserved across module reloads caused by HMR (Hot Module Replacement).
-  let globalWithMongo = global as typeof globalThis & {
-    _mongoClientPromise?: Promise<MongoClient>;
-  };
-
-  if (!globalWithMongo._mongoClientPromise) {
-    client = new MongoClient(uri, options);
-    globalWithMongo._mongoClientPromise = client.connect();
+function getClientPromise(): Promise<MongoClient> {
+  // Check if we're in a build context
+  const isBuild = process.env.NEXT_PHASE === 'phase-production-build' || 
+                  process.env.NEXT_PHASE === 'phase-export';
+  
+  // During build, return a promise that will fail gracefully when awaited
+  // but won't crash the build process
+  if (!process.env.MONGODB_URI) {
+    if (isBuild) {
+      // Return a promise that will be rejected when awaited, but not during module load
+      // This allows the build to complete, but the route will fail at runtime if env vars aren't set
+      return Promise.reject(new Error('MongoDB URI not configured'));
+    }
+    throw new Error('Please add your Mongo URI to .env.local');
   }
-  clientPromise = globalWithMongo._mongoClientPromise;
-} else {
-  // In production mode, it's best to not use a global variable.
-  client = new MongoClient(uri, options);
-  clientPromise = client.connect();
+
+  const uri = process.env.MONGODB_URI;
+
+  if (process.env.NODE_ENV === 'development') {
+    // In development mode, use a global variable so that the value
+    // is preserved across module reloads caused by HMR (Hot Module Replacement).
+    let globalWithMongo = global as typeof globalThis & {
+      _mongoClientPromise?: Promise<MongoClient>;
+    };
+
+    if (!globalWithMongo._mongoClientPromise) {
+      client = new MongoClient(uri, options);
+      globalWithMongo._mongoClientPromise = client.connect();
+    }
+    return globalWithMongo._mongoClientPromise;
+  } else {
+    // In production mode, it's best to not use a global variable.
+    if (!clientPromise) {
+      client = new MongoClient(uri, options);
+      clientPromise = client.connect();
+    }
+    return clientPromise;
+  }
 }
 
 export async function connectToDatabase() {
   try {
+    const clientPromise = getClientPromise();
     const client = await clientPromise;
     const db = client.db(process.env.MONGODB_DB);
     return { client, db };
@@ -45,7 +63,26 @@ export async function connectToDatabase() {
 
 // Export a module-scoped MongoClient promise. By doing this in a
 // separate module, the client can be shared across functions.
-export default clientPromise;
+// Handle build-time gracefully
+const isBuild = process.env.NEXT_PHASE === 'phase-production-build' || 
+                process.env.NEXT_PHASE === 'phase-export';
+
+let defaultExport: Promise<MongoClient>;
+if (isBuild && !process.env.MONGODB_URI) {
+  // During build without env vars, return a promise that won't be awaited during build
+  // The route handlers with force-dynamic should prevent this from being called
+  defaultExport = new Promise(() => {
+    // Never resolves - this prevents Next.js from trying to await it during build
+  }) as Promise<MongoClient>;
+} else {
+  try {
+    defaultExport = getClientPromise();
+  } catch (error) {
+    defaultExport = Promise.reject(error);
+  }
+}
+
+export default defaultExport;
 
 // Graceful shutdown function (for cleanup if needed)
 export async function closeConnection() {

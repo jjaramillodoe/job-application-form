@@ -3,6 +3,8 @@ import clientPromise from '@/app/lib/mongodb';
 import { parse } from 'csv-parse/sync';
 import { encryptData } from '@/app/lib/encryption';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();

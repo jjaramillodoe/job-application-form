@@ -3,6 +3,8 @@ import clientPromise from '@/app/lib/mongodb';
 import { createObjectCsvWriter } from 'csv-writer';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+
+export const dynamic = 'force-dynamic';
 import { decryptData } from '@/app/lib/encryption';
 import { Document, WithId } from 'mongodb';
 import { format } from 'date-fns';

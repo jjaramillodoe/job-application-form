@@ -4,6 +4,8 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import Papa from 'papaparse';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST() {
   try {
     const filePath = path.join(process.cwd(), 'src', 'app', 'data', 'coupons.csv');
