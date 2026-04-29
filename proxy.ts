@@ -16,7 +16,7 @@ function isProtectedPath(pathname: string) {
   return isDashboardRoute || isAdminApiRoute;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (!isProtectedPath(pathname)) {
