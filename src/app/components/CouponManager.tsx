@@ -9,7 +9,7 @@ interface Coupon {
   coupon_code: string;
   assigned_to: string | null;
   assigned_at: string | null;
-  status: 'available' | 'assigned' | 'used';
+  status: 'available' | 'assigned' | 'expired' | 'used';
 }
 
 interface CouponManagerProps {

@@ -12,6 +12,7 @@ export async function GET(request: Request) {
     const searchCounselorEmail = searchParams.get('searchCounselorEmail') || '';
     const filterPayment = searchParams.get('filterPayment') || 'all';
     const filterStatus = searchParams.get('filterStatus') || 'all';
+    const filterYear = searchParams.get('filterYear') || 'all';
     const filterDateFrom = searchParams.get('filterDateFrom') || '';
     const filterDateTo = searchParams.get('filterDateTo') || '';
     const sortBy = searchParams.get('sortBy') || '';
@@ -23,6 +24,7 @@ export async function GET(request: Request) {
 
     // Build query
     const query: any = {};
+    const dateConditions: any[] = [];
     
     if (searchName) {
       query.$or = [
@@ -43,14 +45,46 @@ export async function GET(request: Request) {
       query.status = filterStatus;
     }
 
+    if (filterYear !== 'all') {
+      const year = Number(filterYear);
+      const nextYear = year + 1;
+      const yearStart = `${year}-01-01T00:00:00.000Z`;
+      const yearEnd = `${nextYear}-01-01T00:00:00.000Z`;
+
+      dateConditions.push({
+        $or: [
+          { submittedAt: { $gte: new Date(yearStart), $lt: new Date(yearEnd) } },
+          { submittedAt: { $gte: yearStart, $lt: yearEnd } },
+        ],
+      });
+    }
+
     if (filterDateFrom || filterDateTo) {
-      query.submittedAt = {};
+      const dateQuery: any = {};
+      const stringDateQuery: any = {};
+
       if (filterDateFrom) {
-        query.submittedAt.$gte = new Date(filterDateFrom);
+        const from = new Date(filterDateFrom);
+        dateQuery.$gte = from;
+        stringDateQuery.$gte = from.toISOString();
       }
       if (filterDateTo) {
-        query.submittedAt.$lte = new Date(filterDateTo);
+        const to = new Date(filterDateTo);
+        to.setHours(23, 59, 59, 999);
+        dateQuery.$lte = to;
+        stringDateQuery.$lte = to.toISOString();
       }
+
+      dateConditions.push({
+        $or: [
+          { submittedAt: dateQuery },
+          { submittedAt: stringDateQuery },
+        ],
+      });
+    }
+
+    if (dateConditions.length > 0) {
+      query.$and = dateConditions;
     }
 
     // Build sort

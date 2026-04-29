@@ -1,3 +1,5 @@
+export {};
+
 const fs = require('fs').promises;
 const path = require('path');
 const Papa = require('papaparse');
@@ -27,20 +29,26 @@ async function importCoupons() {
     const db = client.db(process.env.MONGODB_DB);
     const collection = db.collection('coupons');
 
-    // Clear existing coupons
-    await collection.deleteMany({});
+    const coupons = data
+      .filter((row: any) => row.coupon_code)
+      .map((row: any) => ({
+        coupon_id: row.coupon_id,
+        coupon_code: row.coupon_code,
+        assigned_to: null,
+        assigned_at: null,
+        status: 'available'
+      }));
 
-    // Insert new coupons
-    const coupons = data.map((row: any) => ({
-      coupon_id: row.coupon_id,
-      coupon_code: row.coupon_code,
-      assigned_to: null,
-      assigned_at: null,
-      status: 'available'
-    }));
-
-    const result = await collection.insertMany(coupons);
-    console.log(`Successfully imported ${result.insertedCount} coupons`);
+    const result = await collection.bulkWrite(
+      coupons.map((coupon: any) => ({
+        updateOne: {
+          filter: { coupon_code: coupon.coupon_code },
+          update: { $setOnInsert: coupon },
+          upsert: true,
+        },
+      }))
+    );
+    console.log(`Successfully imported ${result.upsertedCount} new coupons`);
   } catch (error) {
     console.error('Error importing coupons:', error);
   } finally {

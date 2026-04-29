@@ -7,10 +7,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const { db } = await connectToDatabase();
     const application = await db.collection('applications').findOne({ _id: new ObjectId(id) });
     
@@ -34,10 +34,10 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
     const { db } = await connectToDatabase();
     const collection = db.collection('applications');
 

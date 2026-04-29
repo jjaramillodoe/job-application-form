@@ -51,7 +51,8 @@ interface Application {
   createdAt: string;
 }
 
-export default function ApplicationDetails({ params }: { params: { id: string } }) {
+export default function ApplicationDetails({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [application, setApplication] = useState<Application | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,14 +63,14 @@ export default function ApplicationDetails({ params }: { params: { id: string } 
 
   useEffect(() => {
     fetchApplication();
-  }, [params.id]);
+  }, [id]);
 
   const fetchApplication = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/applications/${params.id}`);
+      const response = await fetch(`/api/applications/${id}`);
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error('Application not found');
@@ -84,7 +85,7 @@ export default function ApplicationDetails({ params }: { params: { id: string } 
         const couponResponse = await fetch('/api/coupons');
         if (couponResponse.ok) {
           const coupons = await couponResponse.json();
-          const studentCoupon = coupons.find((c: any) => c.assigned_to === params.id);
+          const studentCoupon = coupons.find((c: any) => c.assigned_to === id);
           setCoupon(studentCoupon || null);
         }
       } catch (couponErr) {
@@ -104,7 +105,7 @@ export default function ApplicationDetails({ params }: { params: { id: string } 
       setIsUpdating(true);
       setUpdateError(null);
       
-      const response = await fetch(`/api/applications/${params.id}`, {
+      const response = await fetch(`/api/applications/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -131,7 +132,7 @@ export default function ApplicationDetails({ params }: { params: { id: string } 
   };
 
   const handleEdit = () => {
-    router.push(`/edit/${params.id}`);
+    router.push(`/edit/${id}`);
   };
 
   if (loading) return (
@@ -250,7 +251,7 @@ export default function ApplicationDetails({ params }: { params: { id: string } 
             Application Details
           </h3>
           <Link
-            href={`/edit/${params.id}`}
+            href={`/edit/${id}`}
             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
             Edit Application

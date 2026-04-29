@@ -1,10 +1,24 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import type { ChangeEvent, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { decryptData } from '../lib/encryption';
-import { Gift, BarChart2, Download, X } from 'lucide-react';
+import {
+  BarChart2,
+  CheckCircle2,
+  Clock3,
+  Download,
+  Filter,
+  Gift,
+  LogOut,
+  Search,
+  Ticket,
+  Upload,
+  Users,
+  X,
+} from 'lucide-react';
 
 interface Application {
   _id: string;
@@ -47,7 +61,7 @@ interface CouponAssignment {
   coupon_code: string;
   assigned_to: string;
   assigned_at: string;
-  status: 'available' | 'assigned' | 'used';
+  status: 'available' | 'assigned' | 'expired' | 'used';
   student?: {
     firstName: string;
     lastName: string;
@@ -58,7 +72,7 @@ interface CouponAssignment {
 interface AvailableCoupon {
   _id: string;
   coupon_code: string;
-  status: 'available' | 'assigned' | 'used';
+  status: 'available' | 'assigned' | 'expired' | 'used';
 }
 
 // Add Notification interface
@@ -68,32 +82,95 @@ interface Notification {
   id: number;
 }
 
+const inputClassName =
+  'mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+
+const actionButtonClassName =
+  'inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition focus:outline-none focus:ring-4';
+
+function getStatusBadgeClass(status: Application['status']) {
+  if (status === 'approved' || status === 'accepted') {
+    return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+  }
+
+  if (status === 'rejected') {
+    return 'bg-rose-50 text-rose-700 ring-rose-200';
+  }
+
+  return 'bg-amber-50 text-amber-700 ring-amber-200';
+}
+
+function getPaymentBadgeClass(payment: Application['fingerprintPaymentPreference']) {
+  if (payment === 'yes') {
+    return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+  }
+
+  if (payment === 'no') {
+    return 'bg-rose-50 text-rose-700 ring-rose-200';
+  }
+
+  return 'bg-amber-50 text-amber-700 ring-amber-200';
+}
+
+function StatCard({
+  label,
+  value,
+  helper,
+  icon,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  helper: string;
+  icon: ReactNode;
+  tone: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">{value}</p>
+          <p className="mt-1 text-xs text-slate-500">{helper}</p>
+        </div>
+        <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${tone}`}>
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DownloadModal({ isOpen, onClose, onDownload }: DownloadModalProps) {
   const [password, setPassword] = useState('');
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="bg-white p-6 rounded-lg shadow-xl">
-        <h3 className="text-lg font-semibold mb-4">Enter Password to Download</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-2xl shadow-slate-950/20">
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+          <Download className="h-6 w-6" />
+        </div>
+        <h3 className="text-xl font-bold text-slate-950">Enter Password to Download</h3>
+        <p className="mt-2 text-sm text-slate-600">This export may contain sensitive application data.</p>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-2 border rounded mb-4"
+          className={inputClassName}
           placeholder="Enter password"
         />
-        <div className="flex justify-end space-x-2">
+        <div className="mt-6 flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-600 hover:text-gray-800"
+            className="rounded-full px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
           >
             Cancel
           </button>
           <button
             onClick={() => onDownload(password)}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
           >
             Download
           </button>
@@ -106,6 +183,7 @@ function DownloadModal({ isOpen, onClose, onDownload }: DownloadModalProps) {
 export default function Dashboard() {
   const router = useRouter();
   const [applications, setApplications] = useState<Application[]>([]);
+  const [coupons, setCoupons] = useState<AvailableCoupon[]>([]);
   const [assignedCoupons, setAssignedCoupons] = useState<CouponAssignment[]>([]);
   const [availableCoupons, setAvailableCoupons] = useState<AvailableCoupon[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<string>('');
@@ -114,6 +192,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalApplications, setTotalApplications] = useState(0);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const itemsPerPage = 30;
@@ -121,23 +200,27 @@ export default function Dashboard() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [filterPayment, setFilterPayment] = useState<'all' | 'yes' | 'no' | 'pending'>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'accepted'>('all');
+  const [filterYear, setFilterYear] = useState<'all' | '2026' | '2025'>('2026');
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
   const [filterDateTo, setFilterDateTo] = useState<string>('');
   const [searchName, setSearchName] = useState<string>('');
   const [searchCounselorEmail, setSearchCounselorEmail] = useState<string>('');
   const dateFromRef = useRef<HTMLInputElement>(null);
   const dateToRef = useRef<HTMLInputElement>(null);
+  const couponUploadRef = useRef<HTMLInputElement>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedApplications, setSelectedApplications] = useState<string[]>([]);
   const [isBulkActionOpen, setIsBulkActionOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'applications' | 'coupons'>('applications');
+  const [isUploadingCoupons, setIsUploadingCoupons] = useState(false);
 
   useEffect(() => {
     fetchApplications();
     fetchAssignedCoupons();
     fetchAvailableCoupons();
     
-  }, [currentPage, searchName, searchCounselorEmail, filterPayment, filterStatus, filterDateFrom, filterDateTo, sortBy, sortOrder]);
+  }, [currentPage, searchName, searchCounselorEmail, filterPayment, filterStatus, filterYear, filterDateFrom, filterDateTo, sortBy, sortOrder]);
 
   const fetchApplications = async () => {
     try {
@@ -148,6 +231,7 @@ export default function Dashboard() {
         searchCounselorEmail: searchCounselorEmail,
         filterPayment: filterPayment,
         filterStatus: filterStatus,
+        filterYear: filterYear,
         filterDateFrom: filterDateFrom,
         filterDateTo: filterDateTo,
         sortBy: sortBy || '',
@@ -158,7 +242,8 @@ export default function Dashboard() {
       if (!response.ok) throw new Error('Failed to fetch applications');
       const data = await response.json();
       setApplications(data.applications);
-      setTotalPages(Math.ceil(data.total / itemsPerPage));
+      setTotalApplications(data.total || data.applications.length);
+      setTotalPages(Math.max(1, Math.ceil(data.total / itemsPerPage)));
     } catch (err) {
       setError('Failed to load applications');
     } finally {
@@ -171,6 +256,7 @@ export default function Dashboard() {
       const response = await fetch('/api/coupons');
       if (!response.ok) throw new Error('Failed to fetch coupons');
       const data = await response.json();
+      setCoupons(data);
       
       // Get all assigned coupons
       const assignedCoupons = data.filter((c: CouponAssignment) => c.status === 'assigned');
@@ -207,6 +293,7 @@ export default function Dashboard() {
       const response = await fetch('/api/coupons');
       if (!response.ok) throw new Error('Failed to fetch coupons');
       const data = await response.json();
+      setCoupons(data);
       setAvailableCoupons(data.filter((c: AvailableCoupon) => c.status === 'available'));
     } catch (err) {
       console.error('Error fetching available coupons:', err);
@@ -276,6 +363,74 @@ export default function Dashboard() {
     }
   };
 
+  const handleExpireAvailableCoupons = async () => {
+    if (availableCoupons.length === 0) {
+      showNotification('error', 'No available coupons to expire');
+      return;
+    }
+
+    if (!confirm(`Expire ${availableCoupons.length} available coupon(s)? This will move them out of the 2026 available pool.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/coupons/expire-available', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) throw new Error('Failed to expire coupons');
+
+      const data = await response.json();
+      await fetchAssignedCoupons();
+      await fetchAvailableCoupons();
+      showNotification('success', `Expired ${data.expiredCount} coupon(s)`);
+    } catch (err) {
+      showNotification('error', 'Failed to expire available coupons');
+    }
+  };
+
+  const handleUpload2026Coupons = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      showNotification('error', 'Please upload a CSV file');
+      event.target.value = '';
+      return;
+    }
+
+    setIsUploadingCoupons(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/coupons/upload-2026', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to upload coupons');
+      }
+
+      await fetchAssignedCoupons();
+      await fetchAvailableCoupons();
+      showNotification(
+        'success',
+        `Uploaded ${data.insertedCount} new 2026 coupon(s). ${data.existingCount} already existed.`
+      );
+    } catch (err) {
+      showNotification(err instanceof Error ? 'error' : 'error', err instanceof Error ? err.message : 'Failed to upload coupons');
+    } finally {
+      setIsUploadingCoupons(false);
+      event.target.value = '';
+    }
+  };
+
   const handleDownload = async (password: string) => {
     try {
       const response = await fetch('/api/applications/download', {
@@ -299,6 +454,12 @@ export default function Dashboard() {
     } catch (err) {
       setError('Failed to download applications');
     }
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/admin/logout', { method: 'POST' });
+    router.replace('/dashboard/login');
+    router.refresh();
   };
 
   // Add notification function
@@ -486,19 +647,65 @@ export default function Dashboard() {
     }
   };
 
-  if (loading) return <div className="p-8">Loading...</div>;
-  if (error) return <div className="p-8 text-red-600">{error}</div>;
+  const pendingCount = applications.filter(app => (app.status || 'pending') === 'pending').length;
+  const acceptedCount = applications.filter(app => app.status === 'accepted').length;
+  const expiredCoupons = coupons.filter(coupon => coupon.status === 'expired' || coupon.status === 'used');
+  const showingFrom = applications.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const showingTo = Math.min(currentPage * itemsPerPage, totalApplications || applications.length);
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-[1920px] px-4 py-12 sm:px-6 lg:px-8">
+        <div className="animate-pulse space-y-6">
+          <div className="h-48 rounded-[2rem] bg-slate-200" />
+          <div className="grid gap-4 md:grid-cols-4">
+            <div className="h-32 rounded-3xl bg-slate-200" />
+            <div className="h-32 rounded-3xl bg-slate-200" />
+            <div className="h-32 rounded-3xl bg-slate-200" />
+            <div className="h-32 rounded-3xl bg-slate-200" />
+          </div>
+          <div className="h-96 rounded-[2rem] bg-slate-200" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-2xl items-center px-4 py-16">
+        <div className="w-full rounded-[2rem] border border-rose-200 bg-white p-8 text-center shadow-xl shadow-slate-200/70">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+            <X className="h-7 w-7" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-950">Dashboard Error</h1>
+          <p className="mt-2 text-sm text-slate-600">{error}</p>
+          <button
+            onClick={() => {
+              setError(null);
+              setLoading(true);
+              fetchApplications();
+              fetchAssignedCoupons();
+              fetchAvailableCoupons();
+            }}
+            className="mt-6 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="container mx-auto px-2 py-16 max-w-[1920px]">
+    <div className="mx-auto max-w-[1920px] px-4 py-10 sm:px-6 lg:px-8">
       {/* Notifications */}
       <div className="fixed top-4 right-4 z-50 space-y-2">
         {notifications.map((notification) => (
           <div
             key={notification.id}
-            className={`p-4 rounded-lg shadow-lg flex items-center justify-between ${
-              notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-            } text-white min-w-[300px]`}
+            className={`flex min-w-[300px] items-center justify-between rounded-2xl p-4 text-white shadow-lg ${
+              notification.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
+            }`}
           >
             <span>{notification.message}</span>
             <button
@@ -511,29 +718,37 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-6 gap-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <BarChart2 className="h-7 w-7 text-blue-600" />
-          Applications Dashboard
-        </h1>
-        <div className="flex gap-3">
+      <div className="overflow-hidden rounded-[2rem] border border-blue-100 bg-gradient-to-br from-slate-950 via-blue-950 to-blue-700 p-6 text-white shadow-xl shadow-blue-950/20">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-blue-100 backdrop-blur">
+              <BarChart2 className="h-4 w-4" />
+              Admin Dashboard
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Applications Dashboard</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-blue-100">
+              Review applications, manage statuses, assign coupons, and export application data from one workspace.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
           {selectedApplications.length > 0 && (
             <div className="relative">
               <button
                 onClick={() => setIsBulkActionOpen(!isBulkActionOpen)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors shadow"
+                className={`${actionButtonClassName} bg-white text-blue-700 hover:bg-blue-50 focus:ring-white/30`}
               >
                 Bulk Actions ({selectedApplications.length})
               </button>
               {isBulkActionOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-50">
+                <div className="absolute right-0 z-50 mt-2 w-52 overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200">
                   <div className="py-1">
                     <button
                       onClick={() => {
                         handleBulkStatusUpdate('approved');
                         setIsBulkActionOpen(false);
                       }}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      className="block w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                     >
                       Approve Selected
                     </button>
@@ -542,7 +757,7 @@ export default function Dashboard() {
                         handleBulkStatusUpdate('accepted');
                         setIsBulkActionOpen(false);
                       }}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      className="block w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                     >
                       Accept Selected
                     </button>
@@ -551,7 +766,7 @@ export default function Dashboard() {
                         handleBulkStatusUpdate('rejected');
                         setIsBulkActionOpen(false);
                       }}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      className="block w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                     >
                       Reject Selected
                     </button>
@@ -560,7 +775,7 @@ export default function Dashboard() {
                         handleBulkDelete();
                         setIsBulkActionOpen(false);
                       }}
-                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                      className="block w-full px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
                     >
                       Delete Selected
                     </button>
@@ -571,55 +786,132 @@ export default function Dashboard() {
           )}
           <button
             onClick={handleBulkCouponAssignment}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors shadow"
+            className={`${actionButtonClassName} bg-emerald-500 text-white hover:bg-emerald-400 focus:ring-emerald-200/40`}
           >
             <Gift className="h-5 w-5" />
             Auto-Assign Coupons
           </button>
           <button
             onClick={() => router.push('/dashboard/analytics')}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors shadow"
+            className={`${actionButtonClassName} bg-white/10 text-white ring-1 ring-white/20 hover:bg-white/15 focus:ring-white/30`}
           >
             <BarChart2 className="h-5 w-5" />
             Analytics
           </button>
           <button
             onClick={() => setIsDownloadModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors shadow"
+            className={`${actionButtonClassName} bg-white text-blue-700 hover:bg-blue-50 focus:ring-white/30`}
           >
             <Download className="h-5 w-5" />
             Download All
           </button>
+          <button
+            onClick={handleLogout}
+            className={`${actionButtonClassName} bg-slate-900/40 text-white ring-1 ring-white/15 hover:bg-slate-900/60 focus:ring-white/30`}
+          >
+            <LogOut className="h-5 w-5" />
+            Log Out
+          </button>
+          </div>
         </div>
       </div>
-      {/* Filters */}
-      <div className="flex flex-wrap gap-4 mb-4 items-end">
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Search Name</label>
+
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Total Applications"
+          value={totalApplications}
+          helper={`Showing ${showingFrom}-${showingTo}`}
+          icon={<Users className="h-5 w-5" />}
+          tone="bg-blue-50 text-blue-600"
+        />
+        <StatCard
+          label="Pending Review"
+          value={pendingCount}
+          helper="On this page"
+          icon={<Clock3 className="h-5 w-5" />}
+          tone="bg-amber-50 text-amber-600"
+        />
+        <StatCard
+          label="Accepted"
+          value={acceptedCount}
+          helper="Ready for coupons"
+          icon={<CheckCircle2 className="h-5 w-5" />}
+          tone="bg-emerald-50 text-emerald-600"
+        />
+        <StatCard
+          label="Available Coupons"
+          value={availableCoupons.length}
+          helper={`${assignedCoupons.length} assigned, ${expiredCoupons.length} expired`}
+          icon={<Ticket className="h-5 w-5" />}
+          tone="bg-rose-50 text-rose-600"
+        />
+      </div>
+
+      <div className="mt-6 inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+        <button
+          onClick={() => setActiveTab('applications')}
+          className={`rounded-full px-5 py-2 text-sm font-bold transition ${
+            activeTab === 'applications'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+          }`}
+        >
+          Applications
+        </button>
+        <button
+          onClick={() => setActiveTab('coupons')}
+          className={`rounded-full px-5 py-2 text-sm font-bold transition ${
+            activeTab === 'coupons'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+          }`}
+        >
+          Coupon Management
+        </button>
+      </div>
+
+      {activeTab === 'applications' && (
+        <>
+      <div className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/70">
+        <div className="mb-4 flex items-center gap-2">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
+            <Filter className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="font-bold text-slate-950">Filters</h2>
+            <p className="text-sm text-slate-500">Narrow down applications by student, counselor, status, payment, or date.</p>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div className="xl:col-span-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Search Name</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={searchName}
             onChange={(e) => setSearchName(e.target.value)}
             placeholder="Search by name..."
-            className="border rounded px-2 py-1"
+              className={`${inputClassName} pl-9`}
           />
+          </div>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Search Counselor Email</label>
+        <div className="xl:col-span-2">
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Search Counselor Email</label>
           <input
             type="text"
             value={searchCounselorEmail}
             onChange={(e) => setSearchCounselorEmail(e.target.value)}
             placeholder="Search by counselor email..."
-            className="border rounded px-2 py-1"
+            className={inputClassName}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Payment</label>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payment</label>
           <select
             value={filterPayment}
             onChange={e => setFilterPayment(e.target.value as any)}
-            className="border rounded px-2 py-1"
+            className={inputClassName}
           >
             <option value="all">All</option>
             <option value="yes">Willing to Pay</option>
@@ -628,11 +920,11 @@ export default function Dashboard() {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</label>
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value as any)}
-            className="border rounded px-2 py-1"
+            className={inputClassName}
           >
             <option value="all">All</option>
             <option value="pending">Pending</option>
@@ -642,32 +934,46 @@ export default function Dashboard() {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Submitted Date From</label>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Application Year</label>
+          <select
+            value={filterYear}
+            onChange={e => setFilterYear(e.target.value as 'all' | '2026' | '2025')}
+            className={inputClassName}
+          >
+            <option value="all">All Years</option>
+            <option value="2026">2026</option>
+            <option value="2025">2025</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted From</label>
           <input
             type="date"
             ref={dateFromRef}
             value={filterDateFrom}
             onChange={e => setFilterDateFrom(e.target.value)}
-            className="border rounded px-2 py-1"
+            className={inputClassName}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Submitted Date To</label>
+          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted To</label>
           <input
             type="date"
             ref={dateToRef}
             value={filterDateTo}
             onChange={e => setFilterDateTo(e.target.value)}
-            className="border rounded px-2 py-1"
+            className={inputClassName}
           />
         </div>
         <button
-          className="ml-2 px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-xs"
+          className="self-end rounded-full bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
           onClick={() => {
             setFilterPayment('all');
             setFilterStatus('all');
+            setFilterYear('all');
             setFilterDateFrom('');
             setFilterDateTo('');
+            setSearchName('');
             setSearchCounselorEmail('');
             if (dateFromRef.current) dateFromRef.current.value = '';
             if (dateToRef.current) dateToRef.current.value = '';
@@ -675,24 +981,36 @@ export default function Dashboard() {
         >
           Clear Filters
         </button>
+        </div>
       </div>
-      <div className="flex justify-center w-full">
+      <div className="mt-6 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
+        <div className="flex flex-col gap-2 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-950">Application Queue</h2>
+            <p className="text-sm text-slate-500">Showing page {currentPage} of {totalPages}</p>
+          </div>
+          {selectedApplications.length > 0 && (
+            <span className="inline-flex w-fit rounded-full bg-blue-50 px-3 py-1 text-sm font-semibold text-blue-700 ring-1 ring-blue-200">
+              {selectedApplications.length} selected
+            </span>
+          )}
+        </div>
         <div className="w-full overflow-x-auto">
-          <table className="min-w-full bg-white border border-gray-200">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <table className="min-w-full divide-y divide-slate-200">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                   <input
                     type="checkbox"
-                    checked={selectedApplications.length === applications.length}
+                    checked={applications.length > 0 && selectedApplications.length === applications.length}
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                <th className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Program</th>
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Name</th>
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Program</th>
                 <th
-                  className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  className="cursor-pointer select-none px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500"
                   onClick={() => {
                     setSortBy('counselorEmail');
                     setSortOrder(sortBy === 'counselorEmail' && sortOrder === 'asc' ? 'desc' : 'asc');
@@ -701,10 +1019,10 @@ export default function Dashboard() {
                   Counselor Email
                   {sortBy === 'counselorEmail' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                 </th>
-                <th className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Work Locations</th>
-                <th className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment</th>
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Work Preferences</th>
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Payment</th>
                 <th
-                  className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  className="cursor-pointer select-none px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500"
                   onClick={() => {
                     setSortBy('status');
                     setSortOrder(sortBy === 'status' && sortOrder === 'asc' ? 'desc' : 'asc');
@@ -714,7 +1032,7 @@ export default function Dashboard() {
                   {sortBy === 'status' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                 </th>
                 <th
-                  className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                  className="cursor-pointer select-none px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500"
                   onClick={() => {
                     setSortBy('submittedAt');
                     setSortOrder(sortBy === 'submittedAt' && sortOrder === 'asc' ? 'desc' : 'asc');
@@ -723,11 +1041,11 @@ export default function Dashboard() {
                   Submitted
                   {sortBy === 'submittedAt' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                 </th>
-                <th className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Coupon Code</th>
-                <th className="px-6 py-3 border-b text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Coupon Code</th>
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-slate-100 bg-white">
               {filteredApplications.map((app) => {
                 const workPreferences = app.workPreferences || {
                   bronx: false,
@@ -742,75 +1060,69 @@ export default function Dashboard() {
                 };
 
                 return (
-                  <tr key={app._id} className="hover:bg-gray-50">
+                  <tr key={app._id} className="transition hover:bg-slate-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <input
                         type="checkbox"
                         checked={selectedApplications.includes(app._id)}
                         onChange={(e) => handleSelectApplication(app._id, e.target.checked)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{app.firstName} {app.lastName}</div>
-                      <div className="text-sm text-green-500">
-                        
-                        <span className="text-xs text-green-500 font-small">{app.email.toLowerCase()}</span>
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        
-                        <span className="text-xs text-green-500 font-small">({app.phone.slice(0, 3)}) {app.phone.slice(3, 6)}-{app.phone.slice(6)}</span>
-                      </div>
+                      <div className="text-sm font-bold text-slate-950">{app.firstName} {app.lastName}</div>
+                      <div className="mt-1 text-xs text-slate-500">{app.email.toLowerCase()}</div>
+                      <div className="mt-1 text-xs text-slate-500">({app.phone.slice(0, 3)}) {app.phone.slice(3, 6)}-{app.phone.slice(6)}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
-                      <div className="text-xs text-green-500 font-small">{app.program}</div>
-                      <div className="text-xs text-green-500 font-small">{app.site}</div>
-                      <div className="text-xs text-green-500 font-small">{app.geographicDistrict}</div>
-                      <div className="text-xs text-green-500 font-small">{app.lcgmsCode}</div>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
+                      <div className="font-semibold text-slate-800">{app.program}</div>
+                      <div className="mt-1">{app.site}</div>
+                      <div>{app.geographicDistrict}</div>
+                      <div>{app.lcgmsCode}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">{app.counselor_email.toLowerCase()}</td>
-                    <td className='px-6 py-4 whitespace-nowrap text-xs text-gray-500'>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.bronx ? 'Bronx' : ''}</div>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.brooklyn ? 'Brooklyn' : ''}</div>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.queens ? 'Queens' : ''}</div>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.statenIsland ? 'Staten Island' : ''}</div>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.manhattan ? 'Manhattan' : ''}</div>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.morning ? 'Morning' : ''}</div>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.afternoon ? 'Afternoon' : ''}</div>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.evening ? 'Evening' : ''}</div>
-                      <div className="text-xs text-green-500 font-small">{app.workPreferences.weekend ? 'Weekend' : ''}</div>
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">{app.counselor_email.toLowerCase()}</td>
+                    <td className="px-6 py-4 text-xs text-slate-500">
+                      <div className="flex max-w-xs flex-wrap gap-1.5">
+                        {[
+                          workPreferences.bronx && 'Bronx',
+                          workPreferences.brooklyn && 'Brooklyn',
+                          workPreferences.queens && 'Queens',
+                          workPreferences.statenIsland && 'Staten Island',
+                          workPreferences.manhattan && 'Manhattan',
+                          workPreferences.morning && 'Morning',
+                          workPreferences.afternoon && 'Afternoon',
+                          workPreferences.evening && 'Evening',
+                          workPreferences.weekend && 'Weekend',
+                        ].filter(Boolean).map((preference) => (
+                          <span key={preference as string} className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-600">
+                            {preference}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        app.fingerprintPaymentPreference === 'yes' ? 'bg-green-100 text-green-800' :
-                        app.fingerprintPaymentPreference === 'no' ? 'bg-red-100 text-red-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
+                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${getPaymentBadgeClass(app.fingerprintPaymentPreference)}`}>
                         {app.fingerprintPaymentPreference === 'yes' ? 'Willing to Pay' :
                          app.fingerprintPaymentPreference === 'no' ? 'Not Willing' :
                          'Pending'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        (app.status || 'pending') === 'approved' ? 'bg-green-100 text-green-800' :
-                        (app.status || 'pending') === 'rejected' ? 'bg-red-100 text-red-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
+                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${getStatusBadgeClass(app.status || 'pending')}`}>
                         {(app.status || 'pending').charAt(0).toUpperCase() + (app.status || 'pending').slice(1)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-xs font-medium text-slate-500">
                       {format(new Date(app.submittedAt), 'MMM d, yyyy')}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
                       {getStudentCouponCode(app._id)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
+                      <div className="flex flex-wrap gap-2">
                         <button
                           onClick={() => router.push(`/dashboard/${app._id}`)}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100"
                         >
                           View
                         </button>
@@ -818,13 +1130,13 @@ export default function Dashboard() {
                           <>
                             <button
                               onClick={() => handleStatusChange(app._id, 'approved')}
-                              className="text-green-600 hover:text-green-900"
+                              className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100"
                             >
                               Approve
                             </button>
                             <button
                               onClick={() => handleStatusChange(app._id, 'rejected')}
-                              className="text-red-600 hover:text-red-900"
+                              className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100"
                             >
                               Reject
                             </button>
@@ -832,7 +1144,7 @@ export default function Dashboard() {
                         )}
                         <button
                           onClick={() => handleDeleteApplication(app._id)}
-                          className="text-red-600 hover:text-red-900"
+                          className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-rose-50 hover:text-rose-700"
                           title="Delete application"
                         >
                           Delete
@@ -842,32 +1154,47 @@ export default function Dashboard() {
                   </tr>
                 );
               })}
+              {filteredApplications.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-6 py-16 text-center">
+                    <div className="mx-auto flex max-w-sm flex-col items-center">
+                      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                        <Search className="h-6 w-6" />
+                      </div>
+                      <h3 className="text-base font-bold text-slate-950">No applications found</h3>
+                      <p className="mt-1 text-sm text-slate-500">Try clearing filters or adjusting your search.</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      <div className="mt-4 flex justify-between items-center">
-        <div className="text-sm text-gray-700">
-          Showing page {currentPage} of {totalPages}
+      <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-sm font-medium text-slate-600">
+          Showing {showingFrom}-{showingTo} of {totalApplications || applications.length}
         </div>
-        <div className="flex space-x-2">
+        <div className="flex gap-2">
           <button
             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
             disabled={currentPage === 1}
-            className="px-3 py-1 border rounded disabled:opacity-50"
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Previous
           </button>
           <button
             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
             disabled={currentPage === totalPages}
-            className="px-3 py-1 border rounded disabled:opacity-50"
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Next
           </button>
         </div>
       </div>
+        </>
+      )}
 
       <DownloadModal
         isOpen={isDownloadModalOpen}
@@ -876,70 +1203,118 @@ export default function Dashboard() {
       />
 
       {/* Coupon Assignments Section */}
-      <div className="mt-8 bg-white shadow rounded-lg overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Gift className="h-6 w-6 text-red-600 mr-2" />
-              <h2 className="text-xl font-semibold text-gray-900">Coupon Management</h2>
+      {activeTab === 'coupons' && (
+      <div className="mt-8 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
+        <div className="border-b border-slate-200 px-6 py-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+                <Gift className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-950">Coupon Management</h2>
+                <p className="text-sm text-slate-500">Track assigned coupon codes and assign new ones.</p>
+              </div>
             </div>
-            <button
-              onClick={() => setIsAssignModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Assign New Coupon
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <input
+                ref={couponUploadRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleUpload2026Coupons}
+                className="hidden"
+              />
+              <button
+                onClick={() => couponUploadRef.current?.click()}
+                disabled={isUploadingCoupons}
+                className={`${actionButtonClassName} bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <Upload className="h-4 w-4" />
+                {isUploadingCoupons ? 'Uploading...' : 'Upload 2026 Coupons'}
+              </button>
+              <button
+                onClick={handleExpireAvailableCoupons}
+                disabled={availableCoupons.length === 0}
+                className={`${actionButtonClassName} bg-rose-600 text-white hover:bg-rose-700 focus:ring-rose-100 disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                Expire Available Coupons
+              </button>
+              <button
+                onClick={() => setIsAssignModalOpen(true)}
+                className={`${actionButtonClassName} bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-100`}
+              >
+                Assign New Coupon
+              </button>
+            </div>
           </div>
         </div>
         
+        <div className="grid gap-4 border-b border-slate-200 p-6 md:grid-cols-3">
+          <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-700 ring-1 ring-emerald-100">
+            <p className="text-sm font-semibold">Available</p>
+            <p className="mt-2 text-3xl font-bold">{availableCoupons.length}</p>
+            <p className="mt-1 text-xs">Ready for 2026 assignments</p>
+          </div>
+          <div className="rounded-3xl bg-blue-50 p-5 text-blue-700 ring-1 ring-blue-100">
+            <p className="text-sm font-semibold">Assigned</p>
+            <p className="mt-2 text-3xl font-bold">{assignedCoupons.length}</p>
+            <p className="mt-1 text-xs">Currently linked to students</p>
+          </div>
+          <div className="rounded-3xl bg-slate-100 p-5 text-slate-700 ring-1 ring-slate-200">
+            <p className="text-sm font-semibold">Expired</p>
+            <p className="mt-2 text-3xl font-bold">{expiredCoupons.length}</p>
+            <p className="mt-1 text-xs">Includes legacy used coupons</p>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-slate-200">
+            <thead className="bg-slate-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                   Coupon Code
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                   Student
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                   Email
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                   Assigned Date
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-slate-100 bg-white">
               {assignedCoupons.map((assignment) => (
-                <tr key={assignment._id}>
+                <tr key={assignment._id} className="transition hover:bg-slate-50">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-lg font-bold text-red-600">
+                    <span className="rounded-full bg-rose-50 px-3 py-1 text-sm font-bold text-rose-700 ring-1 ring-rose-200">
                       {assignment.coupon_code}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-semibold text-slate-950">
                       {assignment.student ? `${assignment.student.firstName} ${assignment.student.lastName}` : 'Loading...'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">
+                    <div className="text-sm text-slate-500">
                       {assignment.student?.email || 'Loading...'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-500">
+                    <div className="text-sm text-slate-500">
                       {new Date(assignment.assigned_at).toLocaleDateString()}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button
                       onClick={() => handleUnassignCoupon(assignment._id, assignment.assigned_to)}
-                      className="text-red-600 hover:text-red-900"
+                      className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100"
                     >
                       Unassign
                     </button>
@@ -948,7 +1323,7 @@ export default function Dashboard() {
               ))}
               {assignedCoupons.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">
                     No coupon assignments found
                   </td>
                 </tr>
@@ -956,7 +1331,50 @@ export default function Dashboard() {
             </tbody>
           </table>
         </div>
+
+        <div className="grid gap-6 border-t border-slate-200 p-6 lg:grid-cols-2">
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+            <h3 className="text-base font-bold text-slate-950">Available Coupons</h3>
+            <p className="mt-1 text-sm text-slate-500">New coupons ready to assign.</p>
+            <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
+              {availableCoupons.map((coupon) => (
+                <div key={coupon._id} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
+                  <span className="font-mono text-sm font-bold text-slate-800">{coupon.coupon_code}</span>
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
+                    Available
+                  </span>
+                </div>
+              ))}
+              {availableCoupons.length === 0 && (
+                <div className="rounded-2xl bg-white px-4 py-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+                  No available coupons found.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+            <h3 className="text-base font-bold text-slate-950">Expired Coupons</h3>
+            <p className="mt-1 text-sm text-slate-500">Past used coupons are treated as expired.</p>
+            <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
+              {expiredCoupons.map((coupon) => (
+                <div key={coupon._id} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
+                  <span className="font-mono text-sm font-bold text-slate-800">{coupon.coupon_code}</span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
+                    Expired
+                  </span>
+                </div>
+              ))}
+              {expiredCoupons.length === 0 && (
+                <div className="rounded-2xl bg-white px-4 py-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+                  No expired coupons found.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
+      )}
 
       <AssignCouponModal
         isOpen={isAssignModalOpen}
@@ -1012,19 +1430,23 @@ function AssignCouponModal({
   );
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-        <h3 className="text-lg font-semibold mb-4">Assign Coupon</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-2xl shadow-slate-950/20">
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+          <Gift className="h-6 w-6" />
+        </div>
+        <h3 className="text-xl font-bold text-slate-950">Assign Coupon</h3>
+        <p className="mt-2 text-sm text-slate-600">Select an accepted student and an available coupon code.</p>
         
-        <div className="space-y-4">
+        <div className="mt-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="text-sm font-semibold text-slate-700">
               Select Student
             </label>
             <select
               value={selectedStudent}
               onChange={(e) => setSelectedStudent(e.target.value)}
-              className="w-full p-2 border rounded"
+              className={inputClassName}
             >
               <option value="">Select a student</option>
               {availableStudents.map(app => (
@@ -1034,20 +1456,20 @@ function AssignCouponModal({
               ))}
             </select>
             {availableStudents.length === 0 && (
-              <p className="mt-2 text-sm text-gray-500">
+              <p className="mt-2 text-sm text-slate-500">
                 No available students found. All accepted students have been assigned coupons.
               </p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="text-sm font-semibold text-slate-700">
               Select Coupon
             </label>
             <select
               value={selectedCoupon}
               onChange={(e) => setSelectedCoupon(e.target.value)}
-              className="w-full p-2 border rounded"
+              className={inputClassName}
             >
               <option value="">Select a coupon</option>
               {availableCoupons.map(coupon => (
@@ -1057,24 +1479,24 @@ function AssignCouponModal({
               ))}
             </select>
             {availableCoupons.length === 0 && (
-              <p className="mt-2 text-sm text-gray-500">
+              <p className="mt-2 text-sm text-slate-500">
                 No available coupons found.
               </p>
             )}
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end space-x-2">
+        <div className="mt-6 flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-600 hover:text-gray-800"
+            className="rounded-full px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
           >
             Cancel
           </button>
           <button
             onClick={onAssign}
             disabled={!selectedStudent || !selectedCoupon}
-            className={`px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 ${
+            className={`rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 ${
               (!selectedStudent || !selectedCoupon) ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >

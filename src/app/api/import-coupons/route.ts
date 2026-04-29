@@ -20,23 +20,29 @@ export async function POST() {
     const db = client.db(process.env.MONGODB_DB);
     const collection = db.collection('coupons');
 
-    // Clear existing coupons
-    await collection.deleteMany({});
+    const coupons = data
+      .filter((row: any) => row.coupon_code)
+      .map((row: any) => ({
+        coupon_id: row.coupon_id,
+        coupon_code: row.coupon_code,
+        assigned_to: null, // Will store student ID when assigned
+        assigned_at: null,
+        status: 'available' // available, assigned, expired
+      }));
 
-    // Insert new coupons
-    const coupons = data.map((row: any) => ({
-      coupon_id: row.coupon_id,
-      coupon_code: row.coupon_code,
-      assigned_to: null, // Will store student ID when assigned
-      assigned_at: null,
-      status: 'available' // available, assigned, used
-    }));
-
-    const result = await collection.insertMany(coupons);
+    const result = await collection.bulkWrite(
+      coupons.map((coupon: any) => ({
+        updateOne: {
+          filter: { coupon_code: coupon.coupon_code },
+          update: { $setOnInsert: coupon },
+          upsert: true,
+        },
+      }))
+    );
 
     return NextResponse.json({ 
       success: true, 
-      message: `Imported ${result.insertedCount} coupons` 
+      message: `Imported ${result.upsertedCount} new coupons` 
     });
   } catch (error) {
     console.error('Error importing coupons:', error);

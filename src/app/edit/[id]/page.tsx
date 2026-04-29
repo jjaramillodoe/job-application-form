@@ -40,7 +40,8 @@ interface Application {
   fingerprintPaymentPreference: 'yes' | 'no' | 'pending';
 }
 
-export default function EditApplication({ params }: { params: { id: string } }) {
+export default function EditApplication({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [application, setApplication] = useState<Application | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,14 +50,14 @@ export default function EditApplication({ params }: { params: { id: string } }) 
 
   useEffect(() => {
     fetchApplication();
-  }, [params.id]);
+  }, [id]);
 
   const fetchApplication = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/applications/${params.id}`);
+      const response = await fetch(`/api/applications/${id}`);
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error('Application not found');
@@ -78,7 +79,7 @@ export default function EditApplication({ params }: { params: { id: string } }) 
 
     setSaving(true);
     try {
-      const response = await fetch(`/api/applications/${params.id}`, {
+      const response = await fetch(`/api/applications/${id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -88,7 +89,7 @@ export default function EditApplication({ params }: { params: { id: string } }) 
 
       if (!response.ok) throw new Error('Failed to update application');
       
-      router.push(`/dashboard/${params.id}`);
+      router.push(`/dashboard/${id}`);
     } catch (err) {
       setError('Error updating application');
     } finally {

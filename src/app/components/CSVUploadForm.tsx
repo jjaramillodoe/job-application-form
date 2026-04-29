@@ -169,8 +169,8 @@ export default function CSVUploadForm() {
     try {
       const text = await file.text();
       const records = parse(text, {
-        header: true,
-        skipEmptyLines: true
+        columns: true,
+        skip_empty_lines: true
       });
 
       const previewRecords = records.slice(0, 5);

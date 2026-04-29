@@ -9,12 +9,13 @@ interface Student {
   // ... other student fields
 }
 
-export default async function StudentDetail({ params }: { params: { id: string } }) {
+export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const client = await clientPromise;
   const db = client.db(process.env.MONGODB_DB);
   const collection = db.collection('applications');
 
-  const student = await collection.findOne({ _id: new ObjectId(params.id) }) as Student | null;
+  const student = await collection.findOne({ _id: new ObjectId(id) }) as Student | null;
 
   if (!student) {
     notFound();

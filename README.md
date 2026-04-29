@@ -66,7 +66,9 @@ Before running this application, make sure you have:
    ```env
    MONGODB_URI=your_mongodb_connection_string
    MONGODB_DB=your_database_name
+   ENCRYPTION_KEY=your_encryption_secret
    DOWNLOAD_PASSWORD=your_secure_download_password
+   DASHBOARD_PASSWORD=your_secure_dashboard_password
    ```
 
 4. **Run the development server**
@@ -107,7 +109,9 @@ job-application-form/
 |----------|-------------|----------|
 | `MONGODB_URI` | MongoDB connection string | Yes |
 | `MONGODB_DB` | Database name | Yes |
+| `ENCRYPTION_KEY` | Secret phrase used to encrypt/decrypt sensitive data | Yes |
 | `DOWNLOAD_PASSWORD` | Password for CSV downloads | Yes |
+| `DASHBOARD_PASSWORD` | Password for `/dashboard` access. Falls back to `DOWNLOAD_PASSWORD` if omitted. | Recommended |
 
 ### MongoDB Collections
 

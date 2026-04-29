@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { format, parseISO, startOfDay, endOfDay, eachDayOfInterval, subDays, getDay, getHours } from 'date-fns';
+import { format, startOfDay, endOfDay, eachDayOfInterval, subDays, getDay, getHours } from 'date-fns';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -14,6 +13,7 @@ import {
   ArcElement,
   PointElement,
   LineElement,
+  Filler,
 } from 'chart.js';
 import { Bar, Pie, Line } from 'react-chartjs-2';
 import { AcademicCapIcon, UserGroupIcon, MapPinIcon, ExclamationTriangleIcon, ArrowRightIcon, ArrowLeftIcon } from '@heroicons/react/24/solid';
@@ -28,7 +28,8 @@ ChartJS.register(
   Legend,
   ArcElement,
   PointElement,
-  LineElement
+  LineElement,
+  Filler
 );
 
 interface Application {
@@ -62,6 +63,39 @@ interface Application {
   statusUpdatedAt?: string;
 }
 
+const DEFAULT_WORK_PREFERENCES: Application['workPreferences'] = {
+  bronx: false,
+  brooklyn: false,
+  queens: false,
+  statenIsland: false,
+  manhattan: false,
+  morning: false,
+  afternoon: false,
+  evening: false,
+  weekend: false,
+};
+
+function getWorkPreferences(app: Application) {
+  return app.workPreferences || DEFAULT_WORK_PREFERENCES;
+}
+
+function getSubmittedDate(value: string) {
+  const date = value ? new Date(value) : new Date(NaN);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getTextValue(value: string | undefined, fallback: string) {
+  return value?.trim() || fallback;
+}
+
+function getStatusValue(app: Application) {
+  return app.status || 'pending';
+}
+
+function getPaymentValue(app: Application) {
+  return app.fingerprintPaymentPreference || 'pending';
+}
+
 const COLORS = {
   primary: '#2563eb',
   secondary: '#7c3aed',
@@ -92,7 +126,7 @@ export default function Analytics() {
       const response = await fetch('/api/applications?limit=1000');
       if (!response.ok) throw new Error('Failed to fetch applications');
       const data = await response.json();
-      setApplications(data.applications);
+      setApplications(Array.isArray(data.applications) ? data.applications : []);
     } catch (err) {
       setError('Failed to load applications');
     } finally {
@@ -102,32 +136,37 @@ export default function Analytics() {
 
   // Analytics calculations
   const counselorStats = applications.reduce((acc: { [key: string]: number }, app) => {
-    acc[app.counselor_email] = (acc[app.counselor_email] || 0) + 1;
+    const counselorEmail = getTextValue(app.counselor_email, 'Unknown Counselor');
+    acc[counselorEmail] = (acc[counselorEmail] || 0) + 1;
     return acc;
   }, {});
 
   const programStats = applications.reduce((acc: { [key: string]: number }, app) => {
-    acc[app.program] = (acc[app.program] || 0) + 1;
+    const program = getTextValue(app.program, 'Unknown Program');
+    acc[program] = (acc[program] || 0) + 1;
     return acc;
   }, {});
 
   const districtStats = applications.reduce((acc: { [key: string]: number }, app) => {
-    acc[app.geographicDistrict] = (acc[app.geographicDistrict] || 0) + 1;
+    const district = getTextValue(app.geographicDistrict, 'Unknown District');
+    acc[district] = (acc[district] || 0) + 1;
     return acc;
   }, {});
 
   const statusStats = applications.reduce((acc: { [key: string]: number }, app) => {
-    acc[app.status] = (acc[app.status] || 0) + 1;
+    const status = getStatusValue(app);
+    acc[status] = (acc[status] || 0) + 1;
     return acc;
   }, {});
 
   const paymentStats = applications.reduce((acc: { [key: string]: number }, app) => {
-    acc[app.fingerprintPaymentPreference] = (acc[app.fingerprintPaymentPreference] || 0) + 1;
+    const payment = getPaymentValue(app);
+    acc[payment] = (acc[payment] || 0) + 1;
     return acc;
   }, {});
 
   const workLocationStats = applications.reduce((acc: { [key: string]: number }, app) => {
-    Object.entries(app.workPreferences).forEach(([location, selected]) => {
+    Object.entries(getWorkPreferences(app)).forEach(([location, selected]) => {
       if (selected) {
         acc[location] = (acc[location] || 0) + 1;
       }
@@ -181,14 +220,15 @@ export default function Analytics() {
       const dayStart = startOfDay(date);
       const dayEnd = endOfDay(date);
       const dayApps = applications.filter(app => {
-        const submissionDate = parseISO(app.submittedAt);
+        const submissionDate = getSubmittedDate(app.submittedAt);
+        if (!submissionDate) return false;
         return submissionDate >= dayStart && submissionDate <= dayEnd;
       });
       
       return {
         date: format(dayStart, 'MMM dd'),
         count: dayApps.length,
-        approved: dayApps.filter(app => app.status === 'approved' || app.status === 'accepted').length,
+        approved: dayApps.filter(app => getStatusValue(app) === 'approved' || getStatusValue(app) === 'accepted').length,
       };
     });
 
@@ -223,7 +263,7 @@ export default function Analytics() {
     // For each location, count total applicants who selected that location
     const locationTotals: Record<string, number> = {};
     locations.forEach(loc => {
-      locationTotals[loc] = applications.filter(app => app.workPreferences[loc as keyof typeof app.workPreferences]).length;
+      locationTotals[loc] = applications.filter(app => getWorkPreferences(app)[loc as keyof Application['workPreferences']]).length;
     });
 
     // For each time slot, for each location, count applicants who selected both
@@ -231,8 +271,8 @@ export default function Analytics() {
     preferences.forEach(pref => {
       dataByPreference[pref] = locations.map(loc => {
         const count = applications.filter(app =>
-          app.workPreferences[loc as keyof typeof app.workPreferences] &&
-          app.workPreferences[pref as keyof typeof app.workPreferences]
+          getWorkPreferences(app)[loc as keyof Application['workPreferences']] &&
+          getWorkPreferences(app)[pref as keyof Application['workPreferences']]
         ).length;
         // Percentage of applicants who selected both, out of all who selected the location
         return locationTotals[loc] > 0 ? (count / locationTotals[loc]) * 100 : 0;
@@ -259,18 +299,20 @@ export default function Analytics() {
         pending: number;
       } 
     }, app) => {
-      if (!acc[app.program]) {
-        acc[app.program] = { total: 0, approved: 0, verified: 0, pending: 0 };
+      const program = getTextValue(app.program, 'Unknown Program');
+      const status = getStatusValue(app);
+      if (!acc[program]) {
+        acc[program] = { total: 0, approved: 0, verified: 0, pending: 0 };
       }
-      acc[app.program].total++;
-      if (app.status === 'approved' || app.status === 'accepted') {
-        acc[app.program].approved++;
+      acc[program].total++;
+      if (status === 'approved' || status === 'accepted') {
+        acc[program].approved++;
       }
       if (app.documentsVerified && app.attendanceVerified) {
-        acc[app.program].verified++;
+        acc[program].verified++;
       }
-      if (app.status === 'pending') {
-        acc[app.program].pending++;
+      if (status === 'pending') {
+        acc[program].pending++;
       }
       return acc;
     }, {});
@@ -312,9 +354,11 @@ export default function Analytics() {
   // Top Program by Success Rate
   const programSuccessRates = (() => {
     const programStats = applications.reduce((acc: { [key: string]: { total: number; approved: number } }, app) => {
-      if (!acc[app.program]) acc[app.program] = { total: 0, approved: 0 };
-      acc[app.program].total++;
-      if (app.status === 'approved' || app.status === 'accepted') acc[app.program].approved++;
+      const program = getTextValue(app.program, 'Unknown Program');
+      const status = getStatusValue(app);
+      if (!acc[program]) acc[program] = { total: 0, approved: 0 };
+      acc[program].total++;
+      if (status === 'approved' || status === 'accepted') acc[program].approved++;
       return acc;
     }, {});
     return Object.entries(programStats)
@@ -537,7 +581,8 @@ export default function Analytics() {
 
   // LCGMS Code Distribution (top 10)
   const lcgmsStats = applications.reduce((acc: { [key: string]: number }, app) => {
-    acc[app.lcgmsCode] = (acc[app.lcgmsCode] || 0) + 1;
+    const lcgmsCode = getTextValue(app.lcgmsCode, 'Unknown');
+    acc[lcgmsCode] = (acc[lcgmsCode] || 0) + 1;
     return acc;
   }, {});
   const lcgmsData = Object.entries(lcgmsStats)
@@ -547,9 +592,11 @@ export default function Analytics() {
 
   // LCGMS Code Success Rate (top 10 by volume)
   const lcgmsSuccessStats = applications.reduce((acc: { [key: string]: { total: number; approved: number } }, app) => {
-    if (!acc[app.lcgmsCode]) acc[app.lcgmsCode] = { total: 0, approved: 0 };
-    acc[app.lcgmsCode].total++;
-    if (app.status === 'approved' || app.status === 'accepted') acc[app.lcgmsCode].approved++;
+    const lcgmsCode = getTextValue(app.lcgmsCode, 'Unknown');
+    const status = getStatusValue(app);
+    if (!acc[lcgmsCode]) acc[lcgmsCode] = { total: 0, approved: 0 };
+    acc[lcgmsCode].total++;
+    if (status === 'approved' || status === 'accepted') acc[lcgmsCode].approved++;
     return acc;
   }, {});
   const lcgmsSuccessData = Object.entries(lcgmsSuccessStats)
@@ -614,26 +661,28 @@ export default function Analytics() {
 
   // Quick stats
   const totalApplications = applications.length;
-  const approvedApplications = applications.filter(app => app.status === 'approved').length;
-  const pendingApplications = applications.filter(app => app.status === 'pending').length;
-  const rejectedApplications = applications.filter(app => app.status === 'rejected').length;
-  const acceptedApplications = applications.filter(app => app.status === 'accepted').length;
+  const approvedApplications = applications.filter(app => getStatusValue(app) === 'approved').length;
+  const pendingApplications = applications.filter(app => getStatusValue(app) === 'pending').length;
+  const rejectedApplications = applications.filter(app => getStatusValue(app) === 'rejected').length;
+  const acceptedApplications = applications.filter(app => getStatusValue(app) === 'accepted').length;
   const verifiedDocuments = applications.filter(app => app.documentsVerified).length;
   const verifiedAttendance = applications.filter(app => app.attendanceVerified).length;
   const completedQuestionnaire = applications.filter(app => app.fingerprintQuestionnaire).length;
-  const willingToPay = applications.filter(app => app.fingerprintPaymentPreference === 'yes').length;
-  const notWillingToPay = applications.filter(app => app.fingerprintPaymentPreference === 'no').length;
-  const pendingPayment = applications.filter(app => app.fingerprintPaymentPreference === 'pending').length;
+  const willingToPay = applications.filter(app => getPaymentValue(app) === 'yes').length;
+  const notWillingToPay = applications.filter(app => getPaymentValue(app) === 'no').length;
+  const pendingPayment = applications.filter(app => getPaymentValue(app) === 'pending').length;
 
   // Calculate average response time (time between submission and status change)
   const getAverageResponseTime = () => {
     const responseTimes = applications
-      .filter(app => app.status !== 'pending')
+      .filter(app => getStatusValue(app) !== 'pending')
       .map(app => {
-        const submissionDate = new Date(app.submittedAt);
-        const statusChangeDate = new Date(app.statusUpdatedAt || app.submittedAt);
+        const submissionDate = getSubmittedDate(app.submittedAt);
+        const statusChangeDate = getSubmittedDate(app.statusUpdatedAt || app.submittedAt);
+        if (!submissionDate || !statusChangeDate) return 0;
         return (statusChangeDate.getTime() - submissionDate.getTime()) / (1000 * 60 * 60); // in hours
-      });
+      })
+      .filter(time => time >= 0);
     
     if (responseTimes.length === 0) return 0;
     return responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
@@ -648,7 +697,8 @@ export default function Analytics() {
       const dayIndex = days.indexOf(day);
       return hours.map(hour => {
         const count = applications.filter(app => {
-          const date = new Date(app.submittedAt);
+          const date = getSubmittedDate(app.submittedAt);
+          if (!date) return false;
           return getDay(date) === dayIndex && getHours(date) === hour;
         }).length;
         return {
