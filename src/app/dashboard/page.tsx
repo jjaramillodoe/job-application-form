@@ -59,6 +59,7 @@ interface DownloadModalProps {
 interface CouponAssignment {
   _id: string;
   coupon_code: string;
+  coupon_year?: number;
   assigned_to: string;
   assigned_at: string;
   status: 'available' | 'assigned' | 'expired' | 'used';
@@ -72,6 +73,7 @@ interface CouponAssignment {
 interface AvailableCoupon {
   _id: string;
   coupon_code: string;
+  coupon_year?: number;
   status: 'available' | 'assigned' | 'expired' | 'used';
 }
 
@@ -183,6 +185,7 @@ function DownloadModal({ isOpen, onClose, onDownload }: DownloadModalProps) {
 export default function Dashboard() {
   const router = useRouter();
   const [applications, setApplications] = useState<Application[]>([]);
+  const [assignableApplications, setAssignableApplications] = useState<Application[]>([]);
   const [coupons, setCoupons] = useState<AvailableCoupon[]>([]);
   const [assignedCoupons, setAssignedCoupons] = useState<CouponAssignment[]>([]);
   const [availableCoupons, setAvailableCoupons] = useState<AvailableCoupon[]>([]);
@@ -214,6 +217,9 @@ export default function Dashboard() {
   const [isBulkActionOpen, setIsBulkActionOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'applications' | 'coupons'>('applications');
   const [isUploadingCoupons, setIsUploadingCoupons] = useState(false);
+  const [couponSortBy, setCouponSortBy] = useState<'coupon_code' | 'student' | 'email' | 'assigned_at'>('assigned_at');
+  const [couponSortOrder, setCouponSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [couponYearFilter, setCouponYearFilter] = useState<'2026' | 'all'>('2026');
 
   useEffect(() => {
     fetchApplications();
@@ -300,6 +306,31 @@ export default function Dashboard() {
     }
   };
 
+  const fetchAssignableApplications = async () => {
+    try {
+      const queryParams = new URLSearchParams({
+        page: '1',
+        limit: '5000',
+        filterStatus: 'accepted',
+        filterYear: 'all',
+        sortBy: 'submittedAt',
+        sortOrder: 'desc',
+      });
+
+      const response = await fetch(`/api/applications?${queryParams.toString()}`);
+      if (!response.ok) throw new Error('Failed to fetch accepted students');
+
+      const data = await response.json();
+      const acceptedStudents = Array.isArray(data.applications) ? data.applications : [];
+      setAssignableApplications(acceptedStudents);
+      return acceptedStudents as Application[];
+    } catch (err) {
+      console.error('Error fetching assignable applications:', err);
+      showNotification('error', 'Failed to load accepted students for coupon assignment');
+      return [];
+    }
+  };
+
   const handleStatusChange = async (id: string, newStatus: 'approved' | 'rejected') => {
     try {
       const response = await fetch(`/api/applications/${id}`, {
@@ -336,6 +367,8 @@ export default function Dashboard() {
       
       // Also remove from selected applications if it was selected
       setSelectedApplications(selectedApplications.filter(appId => appId !== id));
+      await fetchAssignedCoupons();
+      await fetchAvailableCoupons();
       
       showNotification('success', 'Application deleted successfully');
     } catch (err) {
@@ -457,9 +490,14 @@ export default function Dashboard() {
   };
 
   const handleLogout = async () => {
-    await fetch('/api/admin/logout', { method: 'POST' });
-    router.replace('/dashboard/login');
-    router.refresh();
+    try {
+      await fetch('/api/admin/logout', {
+        method: 'POST',
+        cache: 'no-store',
+      });
+    } finally {
+      window.location.replace('/dashboard/login');
+    }
   };
 
   // Add notification function
@@ -496,6 +534,7 @@ export default function Dashboard() {
       const data = await response.json();
       await fetchAssignedCoupons();
       await fetchAvailableCoupons();
+      await fetchAssignableApplications();
       setIsAssignModalOpen(false);
       setSelectedStudent('');
       setSelectedCoupon('');
@@ -578,6 +617,8 @@ export default function Dashboard() {
       
       // Clear selection
       setSelectedApplications([]);
+      await fetchAssignedCoupons();
+      await fetchAvailableCoupons();
       
       showNotification('success', `Successfully deleted ${selectedApplications.length - failedDeletes.length} application(s)`);
     } catch (err) {
@@ -604,9 +645,16 @@ export default function Dashboard() {
 
   const handleBulkCouponAssignment = async () => {
     try {
-      // Get students without coupons
-      const studentsWithoutCoupons = applications.filter(app => 
-        app.status === 'accepted' && !assignedCoupons.find(c => c.assigned_to === app._id)
+      const acceptedStudents = await fetchAssignableApplications();
+      const couponsResponse = await fetch('/api/coupons');
+      if (!couponsResponse.ok) throw new Error('Failed to fetch coupons');
+      const latestCoupons = await couponsResponse.json();
+      const latestAssignedCoupons = latestCoupons.filter((coupon: CouponAssignment) => coupon.status === 'assigned');
+      const latestAvailableCoupons = latestCoupons.filter((coupon: AvailableCoupon) => coupon.status === 'available');
+
+      const assignedStudentIds = new Set(latestAssignedCoupons.map((coupon: CouponAssignment) => coupon.assigned_to));
+      const studentsWithoutCoupons = acceptedStudents.filter(app => 
+        app.status === 'accepted' && !assignedStudentIds.has(app._id)
       );
 
       if (studentsWithoutCoupons.length === 0) {
@@ -614,13 +662,13 @@ export default function Dashboard() {
         return;
       }
 
-      if (availableCoupons.length === 0) {
+      if (latestAvailableCoupons.length === 0) {
         showNotification('error', 'No available coupons to assign');
         return;
       }
 
       // Shuffle available coupons
-      const shuffledCoupons = [...availableCoupons].sort(() => Math.random() - 0.5);
+      const shuffledCoupons = [...latestAvailableCoupons].sort(() => Math.random() - 0.5);
       
       // Assign coupons to students
       const assignments = studentsWithoutCoupons.slice(0, Math.min(studentsWithoutCoupons.length, shuffledCoupons.length))
@@ -649,7 +697,54 @@ export default function Dashboard() {
 
   const pendingCount = applications.filter(app => (app.status || 'pending') === 'pending').length;
   const acceptedCount = applications.filter(app => app.status === 'accepted').length;
+  const isVisibleCouponYear = (coupon: { coupon_year?: number }) =>
+    couponYearFilter === 'all' || coupon.coupon_year === Number(couponYearFilter);
+  const visibleAssignedCoupons = assignedCoupons.filter(isVisibleCouponYear);
+  const visibleAvailableCoupons = availableCoupons.filter(isVisibleCouponYear);
   const expiredCoupons = coupons.filter(coupon => coupon.status === 'expired' || coupon.status === 'used');
+  const visibleExpiredCoupons = expiredCoupons.filter(isVisibleCouponYear);
+  const sortDirection = couponSortOrder === 'asc' ? 1 : -1;
+  const sortedAssignedCoupons = [...visibleAssignedCoupons].sort((a, b) => {
+    const getSortValue = (coupon: CouponAssignment) => {
+      if (couponSortBy === 'student') {
+        return `${coupon.student?.firstName || ''} ${coupon.student?.lastName || ''}`.trim().toLowerCase();
+      }
+      if (couponSortBy === 'email') {
+        return (coupon.student?.email || '').toLowerCase();
+      }
+      if (couponSortBy === 'assigned_at') {
+        return new Date(coupon.assigned_at || 0).getTime();
+      }
+      return coupon.coupon_code.toLowerCase();
+    };
+
+    const aValue = getSortValue(a);
+    const bValue = getSortValue(b);
+
+    if (aValue < bValue) return -1 * sortDirection;
+    if (aValue > bValue) return 1 * sortDirection;
+    return 0;
+  });
+  const sortedAvailableCoupons = [...visibleAvailableCoupons].sort((a, b) =>
+    a.coupon_code.localeCompare(b.coupon_code) * (couponSortOrder === 'asc' ? 1 : -1)
+  );
+  const sortedExpiredCoupons = [...visibleExpiredCoupons].sort((a, b) =>
+    a.coupon_code.localeCompare(b.coupon_code) * (couponSortOrder === 'asc' ? 1 : -1)
+  );
+  const handleCouponSort = (field: typeof couponSortBy) => {
+    if (couponSortBy === field) {
+      setCouponSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+
+    setCouponSortBy(field);
+    setCouponSortOrder(field === 'assigned_at' ? 'desc' : 'asc');
+  };
+  const couponSortIndicator = (field: typeof couponSortBy) => (
+    <span className="ml-1 text-slate-400">
+      {couponSortBy === field ? (couponSortOrder === 'asc' ? '▲' : '▼') : '↕'}
+    </span>
+  );
   const showingFrom = applications.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
   const showingTo = Math.min(currentPage * itemsPerPage, totalApplications || applications.length);
 
@@ -840,8 +935,8 @@ export default function Dashboard() {
         />
         <StatCard
           label="Available Coupons"
-          value={availableCoupons.length}
-          helper={`${assignedCoupons.length} assigned, ${expiredCoupons.length} expired`}
+          value={visibleAvailableCoupons.length}
+          helper={`${visibleAssignedCoupons.length} assigned, ${visibleExpiredCoupons.length} expired`}
           icon={<Ticket className="h-5 w-5" />}
           tone="bg-rose-50 text-rose-600"
         />
@@ -1217,6 +1312,14 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
+              <select
+                value={couponYearFilter}
+                onChange={(event) => setCouponYearFilter(event.target.value as '2026' | 'all')}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              >
+                <option value="2026">2026 Coupons</option>
+                <option value="all">All Coupons</option>
+              </select>
               <input
                 ref={couponUploadRef}
                 type="file"
@@ -1234,13 +1337,16 @@ export default function Dashboard() {
               </button>
               <button
                 onClick={handleExpireAvailableCoupons}
-                disabled={availableCoupons.length === 0}
+                disabled={visibleAvailableCoupons.length === 0}
                 className={`${actionButtonClassName} bg-rose-600 text-white hover:bg-rose-700 focus:ring-rose-100 disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 Expire Available Coupons
               </button>
               <button
-                onClick={() => setIsAssignModalOpen(true)}
+                onClick={() => {
+                  setIsAssignModalOpen(true);
+                  fetchAssignableApplications();
+                }}
                 className={`${actionButtonClassName} bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-100`}
               >
                 Assign New Coupon
@@ -1252,17 +1358,17 @@ export default function Dashboard() {
         <div className="grid gap-4 border-b border-slate-200 p-6 md:grid-cols-3">
           <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-700 ring-1 ring-emerald-100">
             <p className="text-sm font-semibold">Available</p>
-            <p className="mt-2 text-3xl font-bold">{availableCoupons.length}</p>
-            <p className="mt-1 text-xs">Ready for 2026 assignments</p>
+            <p className="mt-2 text-3xl font-bold">{visibleAvailableCoupons.length}</p>
+            <p className="mt-1 text-xs">{couponYearFilter === '2026' ? 'Ready for 2026 assignments' : 'Ready to assign'}</p>
           </div>
           <div className="rounded-3xl bg-blue-50 p-5 text-blue-700 ring-1 ring-blue-100">
             <p className="text-sm font-semibold">Assigned</p>
-            <p className="mt-2 text-3xl font-bold">{assignedCoupons.length}</p>
+            <p className="mt-2 text-3xl font-bold">{visibleAssignedCoupons.length}</p>
             <p className="mt-1 text-xs">Currently linked to students</p>
           </div>
           <div className="rounded-3xl bg-slate-100 p-5 text-slate-700 ring-1 ring-slate-200">
             <p className="text-sm font-semibold">Expired</p>
-            <p className="mt-2 text-3xl font-bold">{expiredCoupons.length}</p>
+            <p className="mt-2 text-3xl font-bold">{visibleExpiredCoupons.length}</p>
             <p className="mt-1 text-xs">Includes legacy used coupons</p>
           </div>
         </div>
@@ -1271,17 +1377,29 @@ export default function Dashboard() {
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Coupon Code
+                <th
+                  className="cursor-pointer select-none px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500"
+                  onClick={() => handleCouponSort('coupon_code')}
+                >
+                  Coupon Code {couponSortIndicator('coupon_code')}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Student
+                <th
+                  className="cursor-pointer select-none px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500"
+                  onClick={() => handleCouponSort('student')}
+                >
+                  Student {couponSortIndicator('student')}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Email
+                <th
+                  className="cursor-pointer select-none px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500"
+                  onClick={() => handleCouponSort('email')}
+                >
+                  Email {couponSortIndicator('email')}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Assigned Date
+                <th
+                  className="cursor-pointer select-none px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500"
+                  onClick={() => handleCouponSort('assigned_at')}
+                >
+                  Assigned Date {couponSortIndicator('assigned_at')}
                 </th>
                 <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
                   Actions
@@ -1289,7 +1407,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {assignedCoupons.map((assignment) => (
+              {sortedAssignedCoupons.map((assignment) => (
                 <tr key={assignment._id} className="transition hover:bg-slate-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="rounded-full bg-rose-50 px-3 py-1 text-sm font-bold text-rose-700 ring-1 ring-rose-200">
@@ -1321,7 +1439,7 @@ export default function Dashboard() {
                   </td>
                 </tr>
               ))}
-              {assignedCoupons.length === 0 && (
+              {sortedAssignedCoupons.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">
                     No coupon assignments found
@@ -1334,10 +1452,20 @@ export default function Dashboard() {
 
         <div className="grid gap-6 border-t border-slate-200 p-6 lg:grid-cols-2">
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-            <h3 className="text-base font-bold text-slate-950">Available Coupons</h3>
-            <p className="mt-1 text-sm text-slate-500">New coupons ready to assign.</p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-950">Available Coupons</h3>
+                <p className="mt-1 text-sm text-slate-500">New coupons ready to assign.</p>
+              </div>
+              <button
+                onClick={() => handleCouponSort('coupon_code')}
+                className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-100"
+              >
+                Code {couponSortIndicator('coupon_code')}
+              </button>
+            </div>
             <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
-              {availableCoupons.map((coupon) => (
+              {sortedAvailableCoupons.map((coupon) => (
                 <div key={coupon._id} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
                   <span className="font-mono text-sm font-bold text-slate-800">{coupon.coupon_code}</span>
                   <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
@@ -1354,10 +1482,20 @@ export default function Dashboard() {
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-            <h3 className="text-base font-bold text-slate-950">Expired Coupons</h3>
-            <p className="mt-1 text-sm text-slate-500">Past used coupons are treated as expired.</p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-950">Expired Coupons</h3>
+                <p className="mt-1 text-sm text-slate-500">Past used coupons are treated as expired.</p>
+              </div>
+              <button
+                onClick={() => handleCouponSort('coupon_code')}
+                className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-100"
+              >
+                Code {couponSortIndicator('coupon_code')}
+              </button>
+            </div>
             <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
-              {expiredCoupons.map((coupon) => (
+              {sortedExpiredCoupons.map((coupon) => (
                 <div key={coupon._id} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
                   <span className="font-mono text-sm font-bold text-slate-800">{coupon.coupon_code}</span>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
@@ -1385,7 +1523,7 @@ export default function Dashboard() {
         }}
         onAssign={handleAssignCoupon}
         availableCoupons={availableCoupons}
-        applications={applications}
+        applications={assignableApplications}
         selectedStudent={selectedStudent}
         setSelectedStudent={setSelectedStudent}
         selectedCoupon={selectedCoupon}
@@ -1457,7 +1595,7 @@ function AssignCouponModal({
             </select>
             {availableStudents.length === 0 && (
               <p className="mt-2 text-sm text-slate-500">
-                No available students found. All accepted students have been assigned coupons.
+                No available students found. Students must have accepted status and no currently assigned coupon.
               </p>
             )}
           </div>

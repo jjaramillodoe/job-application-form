@@ -69,7 +69,7 @@ export function encryptData(text: string): string {
   }
 }
 
-export function decryptData(encryptedData: string): string {
+export function tryDecryptData(encryptedData: string): string | null {
   try {
     // If the data isn't encrypted (no base64), return as is
     if (!encryptedData || !encryptedData.match(/^[A-Za-z0-9+/=]+$/)) {
@@ -110,8 +110,11 @@ export function decryptData(encryptedData: string): string {
     ]);
     
     return decrypted.toString('utf8');
-  } catch (error) {
-    console.error('Decryption error:', error);
-    return encryptedData; // Return original data if decryption fails
+  } catch {
+    return null;
   }
-} 
+}
+
+export function decryptData(encryptedData: string): string {
+  return tryDecryptData(encryptedData) ?? encryptedData;
+}

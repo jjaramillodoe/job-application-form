@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '@/app/lib/mongodb';
-import { encryptData, decryptData } from '@/app/lib/encryption';
+import { encryptData, tryDecryptData } from '@/app/lib/encryption';
 import { ObjectId } from 'mongodb';
 
 export const dynamic = 'force-dynamic';
@@ -21,8 +21,8 @@ export async function GET(
     // Decrypt sensitive data
     const decryptedApplication = {
       ...application,
-      ssn: application.ssn ? decryptData(application.ssn) : null,
-      dateOfBirth: application.dateOfBirth ? decryptData(application.dateOfBirth) : null,
+      ssn: application.ssn ? tryDecryptData(application.ssn) : null,
+      dateOfBirth: application.dateOfBirth ? tryDecryptData(application.dateOfBirth) : null,
     };
     
     return NextResponse.json(decryptedApplication);
@@ -55,9 +55,18 @@ export async function DELETE(
       return NextResponse.json({ error: 'Failed to delete application' }, { status: 500 });
     }
 
-    // Also remove any associated coupon assignments
+    // Return any associated coupon assignments to the available pool.
     const couponsCollection = db.collection('coupons');
-    await couponsCollection.deleteMany({ assigned_to: id });
+    await couponsCollection.updateMany(
+      { assigned_to: id },
+      {
+        $set: {
+          assigned_to: null,
+          assigned_at: null,
+          status: 'available',
+        },
+      }
+    );
 
     return NextResponse.json({ 
       message: 'Application deleted successfully',
