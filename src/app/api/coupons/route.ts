@@ -11,7 +11,40 @@ export async function GET() {
     const collection = db.collection('coupons');
 
     const coupons = await collection.find({}).toArray();
-    return NextResponse.json(coupons);
+    const assignedStudentIds = coupons
+      .map((coupon) => coupon.assigned_to)
+      .filter((assignedTo): assignedTo is string => (
+        typeof assignedTo === 'string' &&
+        /^[0-9a-fA-F]{24}$/.test(assignedTo)
+      ));
+
+    if (assignedStudentIds.length === 0) {
+      return NextResponse.json(coupons);
+    }
+
+    const students = await db.collection('applications')
+      .find(
+        { _id: { $in: assignedStudentIds.map((id) => new ObjectId(id)) } },
+        { projection: { firstName: 1, lastName: 1, email: 1 } }
+      )
+      .toArray();
+    const studentsById = new Map(students.map((student) => [
+      student._id.toString(),
+      {
+        firstName: student.firstName,
+        lastName: student.lastName,
+        email: student.email,
+      },
+    ]));
+
+    const couponsWithStudents = coupons.map((coupon) => ({
+      ...coupon,
+      student: typeof coupon.assigned_to === 'string'
+        ? studentsById.get(coupon.assigned_to)
+        : undefined,
+    }));
+
+    return NextResponse.json(couponsWithStudents);
   } catch (error) {
     console.error('Error fetching coupons:', error);
     return NextResponse.json(

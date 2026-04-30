@@ -111,6 +111,10 @@ function isReadableSsn(value?: string | null) {
   return /^\d{3}-?\d{2}-?\d{4}$/.test(value);
 }
 
+function isValidApplicationId(id: string) {
+  return /^[0-9a-fA-F]{24}$/.test(id);
+}
+
 export default function ApplicationDetails({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [application, setApplication] = useState<Application | null>(null);
@@ -130,6 +134,10 @@ export default function ApplicationDetails({ params }: { params: Promise<{ id: s
     try {
       setLoading(true);
       setError(null);
+
+      if (!isValidApplicationId(id)) {
+        throw new Error('Application not found');
+      }
       
       const response = await fetch(`/api/applications/${id}`);
       if (!response.ok) {

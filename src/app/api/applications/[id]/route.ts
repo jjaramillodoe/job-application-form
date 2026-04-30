@@ -5,12 +5,20 @@ import { ObjectId } from 'mongodb';
 
 export const dynamic = 'force-dynamic';
 
+function isValidObjectId(id: string) {
+  return /^[0-9a-fA-F]{24}$/.test(id);
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    if (!isValidObjectId(id)) {
+      return NextResponse.json({ error: 'Invalid application id' }, { status: 400 });
+    }
+
     const { db } = await connectToDatabase();
     const application = await db.collection('applications').findOne({ _id: new ObjectId(id) });
     
@@ -38,6 +46,10 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    if (!isValidObjectId(id)) {
+      return NextResponse.json({ error: 'Invalid application id' }, { status: 400 });
+    }
+
     const { db } = await connectToDatabase();
     const collection = db.collection('applications');
 
@@ -87,6 +99,10 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    if (!isValidObjectId(id)) {
+      return NextResponse.json({ error: 'Invalid application id' }, { status: 400 });
+    }
+
     const { db } = await connectToDatabase();
     const body = await request.json();
 

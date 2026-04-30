@@ -223,10 +223,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchApplications();
-    fetchAssignedCoupons();
-    fetchAvailableCoupons();
-    
   }, [currentPage, searchName, searchCounselorEmail, filterPayment, filterStatus, filterYear, filterDateFrom, filterDateTo, sortBy, sortOrder]);
+
+  useEffect(() => {
+    fetchCoupons();
+  }, []);
 
   const fetchApplications = async () => {
     try {
@@ -257,52 +258,16 @@ export default function Dashboard() {
     }
   };
 
-  const fetchAssignedCoupons = async () => {
+  const fetchCoupons = async () => {
     try {
       const response = await fetch('/api/coupons');
       if (!response.ok) throw new Error('Failed to fetch coupons');
       const data = await response.json();
       setCoupons(data);
-      
-      // Get all assigned coupons
-      const assignedCoupons = data.filter((c: CouponAssignment) => c.status === 'assigned');
-      
-      // Fetch student details for each assigned coupon
-      const couponsWithStudents = await Promise.all(
-        assignedCoupons.map(async (coupon: CouponAssignment) => {
-          if (coupon.assigned_to) {
-            const studentResponse = await fetch(`/api/applications/${coupon.assigned_to}`);
-            if (studentResponse.ok) {
-              const studentData = await studentResponse.json();
-              return {
-                ...coupon,
-                student: {
-                  firstName: studentData.firstName,
-                  lastName: studentData.lastName,
-                  email: studentData.email
-                }
-              };
-            }
-          }
-          return coupon;
-        })
-      );
-      
-      setAssignedCoupons(couponsWithStudents);
-    } catch (err) {
-      console.error('Error fetching assigned coupons:', err);
-    }
-  };
-
-  const fetchAvailableCoupons = async () => {
-    try {
-      const response = await fetch('/api/coupons');
-      if (!response.ok) throw new Error('Failed to fetch coupons');
-      const data = await response.json();
-      setCoupons(data);
+      setAssignedCoupons(data.filter((c: CouponAssignment) => c.status === 'assigned'));
       setAvailableCoupons(data.filter((c: AvailableCoupon) => c.status === 'available'));
     } catch (err) {
-      console.error('Error fetching available coupons:', err);
+      console.error('Error fetching coupons:', err);
     }
   };
 
@@ -367,8 +332,7 @@ export default function Dashboard() {
       
       // Also remove from selected applications if it was selected
       setSelectedApplications(selectedApplications.filter(appId => appId !== id));
-      await fetchAssignedCoupons();
-      await fetchAvailableCoupons();
+      await fetchCoupons();
       
       showNotification('success', 'Application deleted successfully');
     } catch (err) {
@@ -389,8 +353,7 @@ export default function Dashboard() {
 
       if (!response.ok) throw new Error('Failed to unassign coupon');
       
-      await fetchAssignedCoupons();
-      await fetchAvailableCoupons();
+      await fetchCoupons();
     } catch (err) {
       setError('Failed to unassign coupon');
     }
@@ -415,8 +378,7 @@ export default function Dashboard() {
       if (!response.ok) throw new Error('Failed to expire coupons');
 
       const data = await response.json();
-      await fetchAssignedCoupons();
-      await fetchAvailableCoupons();
+      await fetchCoupons();
       showNotification('success', `Expired ${data.expiredCount} coupon(s)`);
     } catch (err) {
       showNotification('error', 'Failed to expire available coupons');
@@ -450,8 +412,7 @@ export default function Dashboard() {
         throw new Error(data?.error || 'Failed to upload coupons');
       }
 
-      await fetchAssignedCoupons();
-      await fetchAvailableCoupons();
+      await fetchCoupons();
       showNotification(
         'success',
         `Uploaded ${data.insertedCount} new 2026 coupon(s). ${data.existingCount} already existed.`
@@ -532,8 +493,7 @@ export default function Dashboard() {
       if (!response.ok) throw new Error('Failed to assign coupon');
       
       const data = await response.json();
-      await fetchAssignedCoupons();
-      await fetchAvailableCoupons();
+      await fetchCoupons();
       await fetchAssignableApplications();
       setIsAssignModalOpen(false);
       setSelectedStudent('');
@@ -617,8 +577,7 @@ export default function Dashboard() {
       
       // Clear selection
       setSelectedApplications([]);
-      await fetchAssignedCoupons();
-      await fetchAvailableCoupons();
+      await fetchCoupons();
       
       showNotification('success', `Successfully deleted ${selectedApplications.length - failedDeletes.length} application(s)`);
     } catch (err) {
@@ -686,8 +645,7 @@ export default function Dashboard() {
 
       if (!response.ok) throw new Error('Failed to assign coupons');
       
-      await fetchAssignedCoupons();
-      await fetchAvailableCoupons();
+      await fetchCoupons();
       
       showNotification('success', `Successfully assigned ${assignments.length} coupons`);
     } catch (err) {
@@ -779,8 +737,7 @@ export default function Dashboard() {
               setError(null);
               setLoading(true);
               fetchApplications();
-              fetchAssignedCoupons();
-              fetchAvailableCoupons();
+              fetchCoupons();
             }}
             className="mt-6 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
           >
